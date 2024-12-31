@@ -23,8 +23,8 @@ GRAPHICS = {
 
 # classes
 class Axis(Enum):
-    VERTICAL = auto()
     HORIZONTAL = auto()
+    VERTICAL = auto()
     POSITIVE = auto()
     NEGATIVE = auto()
 
@@ -265,7 +265,7 @@ def game_logic(
         egg_coords = new_egg_coords
 
         if __name__ == '__main__':           # doesn't display the grid
-            display(grid, is_moving=True)    # when imported
+            display(grid, is_moving=True)    # when file is imported
 
     egg_coords = get_coords(grid, '🥚')     # update coords
 
@@ -275,6 +275,7 @@ def game_logic(
     return state, moves, egg_coords, points
 
 
+# main function
 def main() -> None:
     """Main driver code. This function contains the initialization of
     variables, the main loop, and the exit state.
