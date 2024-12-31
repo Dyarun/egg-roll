@@ -90,7 +90,7 @@ class Grid:
             0 <= j < self._cols):
             return self._grid[i][j]             # in bounds
         else:
-            return None                   # out of bounds
+            return None                         # out of bounds
 
 
     def update(self, coord: Tuple[int, int], char: str) -> None:
