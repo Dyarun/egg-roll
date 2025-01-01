@@ -5,11 +5,11 @@ import subprocess
 import time
 
 from enum import Enum, auto
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 
 # constants
-TICK_RATE = 0.05
+TICK_RATE = 0.01
 DIRECTIONS = frozenset(('l', 'r', 'f', 'b'))
 GRAPHICS = {
     '#': '🧱',
@@ -23,6 +23,7 @@ GRAPHICS = {
 
 # classes
 class Axis(Enum):
+    """Object to be used to group directions."""
     HORIZONTAL = auto()
     VERTICAL = auto()
     POSITIVE = auto()
@@ -30,6 +31,8 @@ class Axis(Enum):
 
 
 class Direction:
+    """Handles direction string to arrow or coordinate conversions."""
+
     DIR_DCT = {
         'l': ((0, -1), '←'),
         'r': ((0, 1),  '→'),
@@ -44,16 +47,20 @@ class Direction:
         self._i = self.coord[0]
         self._j = self.coord[1]
 
-        match direction:
+        match direction:                        # categorize direction
+                                                # axis and polarity
             case 'l':
                 self.axis = Axis.HORIZONTAL
                 self.polarity = Axis.NEGATIVE
+
             case 'r':
                 self.axis = Axis.HORIZONTAL
                 self.polarity = Axis.POSITIVE
+
             case 'f':
                 self.axis = Axis.VERTICAL
                 self.polarity = Axis.NEGATIVE
+
             case 'b':
                 self.axis = Axis.VERTICAL
                 self.polarity = Axis.POSITIVE
@@ -71,6 +78,8 @@ class Direction:
 
 
 class Grid:
+    """Handles grid manipulations and grid displays."""
+
     def __init__(self, grid: List[List[str]]):
         self._grid = [list(i) for i in grid]
         self._rows = len(grid)
@@ -84,10 +93,10 @@ class Grid:
 
     def peek(self, coord: Tuple[int, int]) -> str | None:
         """Returns the object in the grid coord, if any."""
+
         (i, j) = coord
 
-        if (0 <= i < self._rows and
-            0 <= j < self._cols):
+        if 0 <= i < self._rows and 0 <= j < self._cols:
             return self._grid[i][j]             # in bounds
         else:
             return None                         # out of bounds
@@ -99,30 +108,167 @@ class Grid:
         self._grid[i][j] = char
 
 
+class Leaderboard:
+    """Leaderboard class which handles leaderboard 
+    manipulation, file appends, and displaying of leaderboard.
+    """
+
+    LENGTH = 10          # amount of scores to be kept
+    PADDING = 1          # gap between text and dividers when displaying
+
+    def __init__(self, player_w_scores: List[Tuple[str, int]]):
+        self.player_w_scores = player_w_scores
+        self._scores = [s for p, s in player_w_scores]
+        self.min_score = min(self._scores) if self._scores else 0
+        self.sort()
+
+
+    def __repr__(self) -> str:
+        """Returns the string representation of how the 
+        leaderboard will be printed on the level file
+        """
+        str_rep = (f'{p} - {s}' for p, s in self.player_w_scores)
+        return '\n'.join(str_rep)
+
+
+    def sort(self) -> None:
+        """Sorts the leaderboard by scores in decreasing order in place."""
+        self.player_w_scores.sort(key=(lambda tup: tup[::-1]), reverse=True)
+        self._scores.sort(reverse=True)
+
+
+    def file_append(self) -> None:
+        """Appends the scores at the end of the level file."""
+
+        path = os.path.join('.', 'level', sys.argv[1])
+
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        r = int(lines[0])                       # amount of level rows
+
+        if '\n' not in lines[r + 1]:            # avoids concatenation of last
+            lines[r + 1] += '\n'                # level row and leaderboards
+
+        lines[r + 2:] = repr(self)
+
+        with open(path, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+
+
+    def evaluate(self, score: int) -> None:
+        """If the score is above the minimum score in the leaderboards,
+        or there are less than Leaderboard.LENGTH scores in the leaderboards,
+        update and sort the leaderboard after prompting the name of the player.
+        """
+
+        LENGTH = Leaderboard.LENGTH
+        score_len = len(self.player_w_scores)
+
+        if score_len < LENGTH or self.min_score < score:
+
+            player_name = input('Please input your name: ')
+
+            self.player_w_scores.append((player_name, score))
+            self._scores.append(score)
+            self.sort()
+
+            while score_len > LENGTH:           # remove excess scores
+                self.player_w_scores.pop()
+                self._scores.pop()
+
+            self.min_score = min(self._scores)
+            self.file_append()                  # append scores to level file
+
+
+    def clear(self) -> None:
+        """Clears the leaderboards."""
+
+        path = os.path.join('.', 'level', sys.argv[1])
+
+        with open(path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+
+        r = int(lines[0])
+        lines = lines[:r + 2]                   # trim level file lines
+
+        with open(path, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+
+
+    def display(self) -> None:
+        """Displays scores in table form."""
+
+        plyr_w_scre = self.player_w_scores
+        PADDING = Leaderboard.PADDING           # gap between text and divider
+
+        max_p_width = max((len(p) for p, s in plyr_w_scre))
+        max_s_width = max((len(str(s)) for p, s in plyr_w_scre))
+        max_s_width = max(max_s_width, len('SCORES'))
+
+        max_p_width += PADDING                  # max player string width
+        max_s_width += PADDING                  # max score string width
+
+        header = [('PLAYER', 'SCORES')]   # include header with scores
+
+        for i, (plyr, scre) in enumerate((*header, *plyr_w_scre)):
+
+            plyr_width = len(plyr)
+
+            plyr_space = max_p_width - plyr_width
+            scre_space = PADDING
+
+            p_col = f'{plyr}{' '*plyr_space}'
+            s_col = f'{' '*scre_space}{scre}'
+
+            print(f'{p_col}|{s_col}')           # print player and score
+
+            if i == 0:                          # check if printing headers
+                p_col = '-'*max_p_width
+                s_col = '-'*max_s_width
+                print(f'{p_col}+{s_col}')       # print dividers after headers
+            
+
 # utility functions
-def get_level_info() -> Tuple[Grid, int, List[Tuple[int, int]]]:
-    """This function extracts and processes the stage grid,
-    number of moves, and egg coordinates from the level file, if any.
+def get_level_info() -> Tuple[int, int, List[str], List[str]]:
+    """This function extracts the rows, number of moves,
+    the stage layout, and scores from the level file, if any.
 
     Returns the extracted data.
     """
-
     if len(sys.argv) < 2:
-        raise FileNotFoundError('Please input a level file '
-                                + 'from the level directory.')
+        prompt = 'Please input a level file from the level directory.'
+        raise FileNotFoundError(prompt)
 
-    level_path = os.path.join('.', 'level', sys.argv[1])
+    path = os.path.join('.', 'level', sys.argv[1])
     
-    with open(level_path, encoding='utf-8') as f:
-        r = int(f.readline().replace('\n', ''))
-        moves = int(f.readline().replace('\n', ''))
-        grid_ = []
-        for i in range(r):
-            grid_.append(f.readline().replace('\n', ''))
+    with open(path, encoding='utf-8') as f:
+        rows = int(f.readline())
+        moves = int(f.readline())
+
+        grid = []
+        for i in range(rows):
+            grid.append(f.readline().replace('\n', ''))
+
+        scores = []
+        for i in range(Leaderboard.LENGTH):
+            scores.append(f.readline().replace('\n', ''))
+    
+    return rows, moves, grid, scores
+
+
+def process_stage() -> Tuple[Grid, int, List[Tuple[int, int]], Leaderboard]:
+    """This function processes the stage grid, number of moves,
+    egg coordinates, and scores from the level file, if any.
+
+    Returns the processed data.
+    """
+    moves, grid_, scores_ = get_level_info()[1:]
 
     grid = process_grid(grid_)
-
-    return grid, moves, get_coords(grid, '🥚')
+    egg_coords = get_coords(grid, '🥚')
+    scores = process_scores(scores_)
+    return grid, moves, egg_coords, scores
 
 
 def process_grid(grid: List[str]) -> Grid:
@@ -136,6 +282,31 @@ def process_grid(grid: List[str]) -> Grid:
                   for i in grid])
 
 
+def process_scores(scores: List[str]) -> Leaderboard:
+    """Returns a list of Leaderboard.LENGTH or less pairs of player names and
+    their scores from the raw scores list. The list will be sorted
+    according to the player scores in decreasing order.
+    """
+
+    assert len(scores) <= Leaderboard.LENGTH
+
+    leaderboard = []
+
+    for line in scores:
+
+        if line:                                # if line is not empty
+
+            (*plyr_, scre_) = line.split(' - ') # handles cases where player name
+            plyr = ''.join(plyr_)               # contains ' - '
+            scre = int(scre_)
+
+            leaderboard.append((plyr, scre))    # player - score tuple pair
+
+    leaderboard.sort(key=lambda tup: tup[::-1], reverse=True)
+
+    return Leaderboard(leaderboard)
+
+
 def process_input(input_dir: str) -> Direction | None:
     """Checks if the input string is 'quit',
     else finds the first valid character in the input string.
@@ -146,10 +317,12 @@ def process_input(input_dir: str) -> Direction | None:
 
     if input_dir == 'quit':
         return None
+
     for i in input_dir:
         if i in DIRECTIONS:
             direction = Direction(i)
             break
+
     return direction
 
 
@@ -200,6 +373,14 @@ def display_stats(moves: int, all_moves: List[str], points: int) -> None:
     print(f'Points: {points}')
 
 
+def display_leaderboard(leaderboard: Leaderboard) -> None:
+    """Displays the top Leaderboard.LENGTH scores for the level."""
+    clear_screen()
+    print(f'TOP {Leaderboard.LENGTH} SCORES\n')
+    leaderboard.display()
+    print()
+
+
 # game functions
 def get_coords(grid: Grid, char: str) -> List[Tuple[int, int]]:
     """Returns a list of tuple-coordinates of all char in the grid."""
@@ -224,54 +405,52 @@ def game_logic(
     Returns the game variables once there are no moveable eggs.
     """
 
-    axis = input_dir.axis                    # axis of direction
-    polarity = input_dir.polarity            # sign of direction
+    axis = input_dir.axis                       # axis of direction
+    polarity = input_dir.polarity               # sign of direction
 
-    if axis is Axis.HORIZONTAL:              # sort using column/row if axis is
-        sort_key = (lambda tup: tup[::-1])   # horizontal/vertical repectively
+    if axis is Axis.HORIZONTAL:                 # sort using col/row if axis
+        sort_key = (lambda tup: tup[::-1])      # is horizontal/vertical
     else:
         sort_key = None
-    is_rev = polarity is Axis.NEGATIVE       # set list popping order
+    is_rev = polarity is Axis.NEGATIVE          # set list popping order
 
-    while egg_coords:                        # loop if there is a moveable egg
+    while egg_coords:                           # loop while eggs are moveable
 
         new_egg_coords = []
-
-        egg_coords.sort(key=sort_key,        # avoids egg overlaps
+        egg_coords.sort(key=sort_key,           # avoids egg overlaps
                         reverse=is_rev)
 
-        while egg_coords:                    # process each moveable egg
+        while egg_coords:                       # process each moveable egg
 
-            cur = egg_coords.pop()           # current egg coords
-            nxt = input_dir.get_next(cur)    # adjacent coords
-            adj = grid.peek(nxt)             # object adjacent to egg
+            cur = egg_coords.pop()              # current egg coords
+            nxt = input_dir.get_next(cur)       # adjacent coords
+            adj = grid.peek(nxt)                # object adjacent to egg
 
             if adj == '🟩':
                 grid.update(nxt, '🥚')
                 grid.update(cur, '🟩')
 
-                new_egg_coords.append(nxt)   # egg can still move
+                new_egg_coords.append(nxt)      # egg can still move
 
             else:
                 if adj == '🍳':
-                    grid.update(nxt, '🍳')  # cook egg
+                    grid.update(nxt, '🍳')     # cook egg
                     grid.update(cur, '🟩')
                     points -= 5
                 elif adj == '🪹':
-                    grid.update(nxt, '🪺')  # close nest
+                    grid.update(nxt, '🪺')     # close nest
                     grid.update(cur, '🟩')
                     points += 10 + moves
 
         egg_coords = new_egg_coords
 
-        if __name__ == '__main__':           # doesn't display the grid
-            display(grid, is_moving=True)    # when file is imported
+        if __name__ == '__main__':              # doesn't display the grid
+            display(grid, is_moving=True)       # when file is imported
 
-    egg_coords = get_coords(grid, '🥚')     # update coords
+    egg_coords = get_coords(grid, '🥚')        # update coords
 
-    state = bool(moves-1 and egg_coords)     # game ends when there are
-                                             # no more eggs or no more moves
-
+    state = bool(moves-1 and egg_coords)        # game ends when there are
+                                                # no more eggs or no more moves
     return state, moves, egg_coords, points
 
 
@@ -281,10 +460,10 @@ def main() -> None:
     variables, the main loop, and the exit state.
     """
 
-    # game variable initialization
-    all_moves: List[str] = []                     # all previous moves in arrow form
+    # initialization of game variables
+    all_moves: List[str] = []                   # all moves in arrow form
     state = True
-    (grid, moves, egg_coords) = get_level_info()
+    (grid, moves, egg_coords, leaderboard) = process_stage()
     points = 0
 
     # main game loop
@@ -296,9 +475,8 @@ def main() -> None:
         if not is_valid(user_input):
             continue
 
-        input_dir = process_input(user_input)     # convert input string to 
-                                                  # Direction or None type
-
+        input_dir = process_input(user_input)   # convert input string to 
+                                                # Direction or None type
         if input_dir is None:
             break
         else:
@@ -307,7 +485,34 @@ def main() -> None:
             vars_ = game_logic(input_dir, grid, moves, egg_coords, points)
             (state, moves, egg_coords, points) = vars_
 
-    display(grid, moves, all_moves, points)       # display final state of the game
+    # after game has ended
+    display(grid, moves, all_moves, points)     # display final game state
+    
+    if not state:                               # only evaluate score if
+        leaderboard.evaluate(points)            # the game properly ended
+
+    prompt = 'Show leaderboard? [Y/n/clear]: '
+
+    while True:                                 # loop until input is y or n
+
+        display(grid, moves, all_moves, points)
+        show_leaderboard = input(prompt)
+
+        match show_leaderboard.lower():
+
+            case 'y':
+                display_leaderboard(leaderboard)
+                break
+            
+            case 'n':
+                break
+            
+            case 'clear':
+                leaderboard.clear()
+                break
+            
+            case _:
+                clear_screen()
 
 
 if __name__ == '__main__':
